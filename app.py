@@ -3,6 +3,12 @@ from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
 
+# Root route - Fixes 404 error
+@app.route('/')
+def home():
+    return jsonify({"status": "running", "message": "SaveItPro API is Live!"})
+
+# Download route - Receives the URL from the frontend
 @app.route('/download', methods=['POST'])
 def download_video():
     url = request.json.get('url')
@@ -18,6 +24,7 @@ def download_video():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# File serving route
 @app.route('/get/<filename>')
 def get_file(filename):
     return send_file(os.path.join(tempfile.gettempdir(), filename), as_attachment=True)
