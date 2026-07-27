@@ -283,7 +283,9 @@ def internal_error(error):
     }), 500
 
 # ==================== MAIN ====================
-
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # Gunicorn will handle running the app on Render
+    # For local development, uncomment below:
+    # port = int(os.environ.get('PORT', 10000))
+    # app.run(host='0.0.0.0', port=port, debug=False)
+    pass
