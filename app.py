@@ -195,22 +195,31 @@ def download_media():
             info = ydl.extract_info(url, download=True)
             file_path = ydl.prepare_filename(info)
             filename = os.path.basename(file_path)
+            
+            # Sanitize filename: remove special characters and keep only alphanumeric, dash, underscore, dot
+            safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
+            safe_filename = re.sub(r'_+', '_', safe_filename)  # Replace multiple underscores with single
+            
+            # Ensure filename is not empty and has valid extension
+            if not safe_filename or '.' not in safe_filename:
+                ext = os.path.splitext(filename)[1] or '.mp4'
+                safe_filename = f"download_{os.urandom(4).hex()}{ext}"
 
-            # Store download info
-            DOWNLOADS[filename] = {
+            # Store download info with safe filename
+            DOWNLOADS[safe_filename] = {
                 'path': file_path,
                 'title': info.get('title', 'download'),
                 'format': format_type
             }
 
             # Generate download URL
-            download_url = f"{request.host_url}api/get/{filename}"
+            download_url = f"{request.host_url}api/get/{safe_filename}"
 
             return jsonify({
                 "success": True,
                 "status": "success",
                 "downloadUrl": download_url,
-                "filename": filename,
+                "filename": safe_filename,
                 "title": info.get('title', 'download'),
                 "message": "Download ready"
             }), 200
