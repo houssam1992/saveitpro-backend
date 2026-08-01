@@ -27,12 +27,11 @@ def cleanup_old_files():
             if filename.startswith('saveitpro_'):
                 filepath = os.path.join(TEMP_DIR, filename)
                 if os.path.isfile(filepath):
-                    # مسح الملفات التي مر عليها أكثر من 30 دقيقة (1800 ثانية)
                     file_age = current_time - os.path.getctime(filepath)
-                    if file_age > 1800:
+                    if file_age > 1800: # 30 دقيقة
                         os.remove(filepath)
     except Exception:
-        pass  # تجاهل الأخطاء لكي لا يتوقف التحميل إذا فشل المسح
+        pass
 
 # ==================== ROOT ROUTES ====================
 
@@ -136,15 +135,11 @@ def download_media():
         unique_id = os.urandom(6).hex()
         base_filename = f"saveitpro_{unique_id}"
 
-        # إعداد الصيغ لتفادي الانهيار إذا كان ffmpeg غير متاح
+        # إعداد الصيغ البسيطة لتجنب الحاجة لـ FFmpeg
         if format_type in ['mp3', 'wav']:
             format_spec = 'bestaudio/best'
-        elif quality == 'best':
-            format_spec = 'best'
-        elif quality == 'worst':
-            format_spec = 'worst'
         else:
-            format_spec = f'best[height<={quality}]/best'
+            format_spec = 'best[ext=mp4]/best'
 
         ydl_opts = {
             'format': format_spec,
@@ -153,7 +148,15 @@ def download_media():
             'no_warnings': True,
             'noplaylist': True,
             'socket_timeout': 15,
-            'prefer_ffmpeg': False,
+            # تمويه الطلب كأنه متصفح عادي لتفادي حظر YouTube IP
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                }
+            }
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -175,8 +178,9 @@ def download_media():
 
     except Exception as e:
         error_msg = str(e)
+        # إرجاع خطأ 400/429 بدلاً من 500 لكي يفهم الفرونت إند السبب بالضبط
         if 'HTTP Error 429' in error_msg or 'Sign in to confirm' in error_msg:
-            return jsonify({"success": False, "status": "error", "error": "YouTube blocked server IP. Try again later."}), 429
+            return jsonify({"success": False, "status": "error", "error": "YouTube IP blocked on server. Try again later."}), 429
         elif 'Unsupported URL' in error_msg or 'No video found' in error_msg:
             return jsonify({"success": False, "status": "error", "error": "Invalid URL or unsupported platform."}), 400
         else:
