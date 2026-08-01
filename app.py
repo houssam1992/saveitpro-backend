@@ -31,8 +31,8 @@ def cleanup_old_files():
                     file_age = current_time - os.path.getctime(filepath)
                     if file_age > 1800:
                         os.remove(filepath)
-    except Exception as e:
-        pass # تجاهل الأخطاء لكي لا يتوقف التحميل إذا فشل المسح
+    except Exception:
+        pass  # تجاهل الأخطاء لكي لا يتوقف التحميل إذا فشل المسح
 
 # ==================== ROOT ROUTES ====================
 
@@ -59,7 +59,7 @@ def health_check():
 @app.route('/api/validate', methods=['POST'])
 def validate_url():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         url = data.get('url', '').strip()
 
         if not url:
@@ -86,7 +86,7 @@ def validate_url():
         }), 200
 
     except Exception as e:
-        return jsonify({"valid": False, "error": str(e)}), 500
+        return jsonify({"valid": False, "error": str(e)}), 400
 
 # ==================== PLATFORMS ====================
 
@@ -102,7 +102,7 @@ def get_platforms():
 @app.route('/api/qualities', methods=['POST'])
 def get_qualities():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         url = data.get('url', '').strip()
 
         if not url:
@@ -123,10 +123,9 @@ def get_qualities():
 @app.route('/api/download', methods=['POST'])
 def download_media():
     try:
-        # تشغيل دالة التنظيف قبل كل عملية تحميل جديدة
         cleanup_old_files()
 
-        data = request.get_json()
+        data = request.get_json() or {}
         url = data.get('url', '').strip()
         quality = data.get('quality', 'best')
         format_type = data.get('format', 'mp4')
@@ -134,47 +133,35 @@ def download_media():
         if not url or not url.startswith(('http://', 'https://')):
             return jsonify({"success": False, "status": "error", "error": "Invalid or no URL provided"}), 400
 
-        # إعداد جودة التحميل
-        format_spec = 'best'
-        if quality != 'best':
-            format_spec = 'worst' if quality == 'worst' else f'best[height<={quality}]'
-
-        # اسم ملف فريد وآمن لتفادي مشاكل Gunicorn
         unique_id = os.urandom(6).hex()
         base_filename = f"saveitpro_{unique_id}"
-        
+
+        # إعداد الصيغ لتفادي الانهيار إذا كان ffmpeg غير متاح
+        if format_type in ['mp3', 'wav']:
+            format_spec = 'bestaudio/best'
+        elif quality == 'best':
+            format_spec = 'best'
+        elif quality == 'worst':
+            format_spec = 'worst'
+        else:
+            format_spec = f'best[height<={quality}]/best'
+
         ydl_opts = {
             'format': format_spec,
-            # حفظ الملف مباشرة في TEMP_DIR باسم يبدأ بـ saveitpro
             'outtmpl': os.path.join(TEMP_DIR, f'{base_filename}.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
-            'socket_timeout': 15, # تقليل وقت الانتظار لتفادي سقوط السيرفر (Timeout)
-            # 'cookiefile': 'cookies.txt', # نزع علامة # إذا كان لديك ملف كوكيز لانستغرام وتيك توك
+            'noplaylist': True,
+            'socket_timeout': 15,
+            'prefer_ffmpeg': False,
         }
-
-        # إعدادات الصوت
-        if format_type in ['mp3', 'wav']:
-            ydl_opts['format'] = 'bestaudio/best'
-            ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3' if format_type == 'mp3' else 'wav',
-                'preferredquality': '192' if format_type == 'mp3' else '44100',
-            }]
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            # استخراج اسم الملف النهائي بعد التحميل
             file_path = ydl.prepare_filename(info)
-            if format_type in ['mp3', 'wav']:
-                # تحديث الامتداد إذا تم تحويله لصوت
-                file_path = os.path.splitext(file_path)[0] + f'.{format_type}'
-            
             final_filename = os.path.basename(file_path)
 
             download_url = f"{request.host_url}api/get/{final_filename}"
-
-            # تنظيف العنوان من الرموز العجيبة
             safe_title = re.sub(r'[^a-zA-Z0-9\s_-]', '', info.get('title', 'download'))
 
             return jsonify({
@@ -188,19 +175,18 @@ def download_media():
 
     except Exception as e:
         error_msg = str(e)
-        if 'HTTP Error 429' in error_msg:
-            return jsonify({"success": False, "status": "error", "error": "Rate limited. Please wait a moment."}), 429
+        if 'HTTP Error 429' in error_msg or 'Sign in to confirm' in error_msg:
+            return jsonify({"success": False, "status": "error", "error": "YouTube blocked server IP. Try again later."}), 429
         elif 'Unsupported URL' in error_msg or 'No video found' in error_msg:
             return jsonify({"success": False, "status": "error", "error": "Invalid URL or unsupported platform."}), 400
         else:
-            return jsonify({"success": False, "status": "error", "error": error_msg}), 500
+            return jsonify({"success": False, "status": "error", "error": error_msg}), 400
 
 # ==================== FILE SERVING ====================
 
 @app.route('/api/get/<filename>', methods=['GET'])
 def get_file(filename):
     try:
-        # حماية ضد التلاعب بمسار الملفات
         if '..' in filename or '/' in filename or not filename.startswith('saveitpro_'):
             return jsonify({"error": "Invalid filename"}), 400
 
@@ -216,7 +202,7 @@ def get_file(filename):
         return jsonify({"error": "File not found or expired"}), 404
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": str(e)}), 400
 
 # ==================== ERROR HANDLERS ====================
 
@@ -229,4 +215,4 @@ def internal_error(error):
     return jsonify({"success": False, "status": "error", "error": "Internal server error"}), 500
 
 if __name__ == '__main__':
-    pass
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
