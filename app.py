@@ -9,7 +9,9 @@ from flask_cors import CORS
 from urllib.parse import urlparse
 
 app = Flask(__name__)
-CORS(app)
+
+# تحديث إعدادات CORS للسماح بالنطاق الأساسي والنطاق الفرعي www
+CORS(app, resources={r"/*": {"origins": ["https://saveitpro.co", "https://www.saveitpro.co"]}})
 
 # Supported platforms
 SUPPORTED_PLATFORMS = [
@@ -161,7 +163,6 @@ def download_media():
             }), 200
 
     except Exception as e:
-        # طباعة تفاصيل الخطأ الكاملة لمرفق الإحصائيات وسجلات السيرفر
         error_details = traceback.format_exc()
         print("=== CRITICAL DOWNLOAD ERROR ===")
         print(error_details)
