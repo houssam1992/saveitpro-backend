@@ -3,6 +3,7 @@ import yt_dlp
 import tempfile
 import re
 import time
+import traceback
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from urllib.parse import urlparse
@@ -28,7 +29,7 @@ def cleanup_old_files():
                 filepath = os.path.join(TEMP_DIR, filename)
                 if os.path.isfile(filepath):
                     file_age = current_time - os.path.getctime(filepath)
-                    if file_age > 1800: # 30 دقيقة
+                    if file_age > 1800:  # 30 دقيقة
                         os.remove(filepath)
     except Exception:
         pass
@@ -39,8 +40,8 @@ def cleanup_old_files():
 def root():
     return jsonify({
         "status": "running",
-        "message": "SaveItPro API is Live! (Optimized)",
-        "version": "1.0.1"
+        "message": "SaveItPro API is Live! (Debug Mode)",
+        "version": "1.0.2"
     }), 200
 
 # ==================== HEALTH CHECK ====================
@@ -50,7 +51,7 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "service": "SaveItPro Backend",
-        "version": "1.0.1"
+        "version": "1.0.2"
     }), 200
 
 # ==================== VALIDATION ====================
@@ -126,8 +127,6 @@ def download_media():
 
         data = request.get_json() or {}
         url = data.get('url', '').strip()
-        quality = data.get('quality', 'best')
-        format_type = data.get('format', 'mp4')
 
         if not url or not url.startswith(('http://', 'https://')):
             return jsonify({"success": False, "status": "error", "error": "Invalid or no URL provided"}), 400
@@ -135,28 +134,13 @@ def download_media():
         unique_id = os.urandom(6).hex()
         base_filename = f"saveitpro_{unique_id}"
 
-        # إعداد الصيغ البسيطة لتجنب الحاجة لـ FFmpeg
-        if format_type in ['mp3', 'wav']:
-            format_spec = 'bestaudio/best'
-        else:
-            format_spec = 'best[ext=mp4]/best'
-
         ydl_opts = {
-            'format': format_spec,
+            'format': 'best',
             'outtmpl': os.path.join(TEMP_DIR, f'{base_filename}.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
             'socket_timeout': 15,
-            # تمويه الطلب كأنه متصفح عادي لتفادي حظر YouTube IP
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            },
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'web'],
-                }
-            }
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -177,14 +161,18 @@ def download_media():
             }), 200
 
     except Exception as e:
-        error_msg = str(e)
-        # إرجاع خطأ 400/429 بدلاً من 500 لكي يفهم الفرونت إند السبب بالضبط
-        if 'HTTP Error 429' in error_msg or 'Sign in to confirm' in error_msg:
-            return jsonify({"success": False, "status": "error", "error": "YouTube IP blocked on server. Try again later."}), 429
-        elif 'Unsupported URL' in error_msg or 'No video found' in error_msg:
-            return jsonify({"success": False, "status": "error", "error": "Invalid URL or unsupported platform."}), 400
-        else:
-            return jsonify({"success": False, "status": "error", "error": error_msg}), 400
+        # طباعة تفاصيل الخطأ الكاملة لمرفق الإحصائيات وسجلات السيرفر
+        error_details = traceback.format_exc()
+        print("=== CRITICAL DOWNLOAD ERROR ===")
+        print(error_details)
+        print("===============================")
+        
+        return jsonify({
+            "success": False,
+            "status": "error",
+            "error": str(e),
+            "traceback": error_details
+        }), 500
 
 # ==================== FILE SERVING ====================
 
@@ -216,7 +204,12 @@ def not_found(error):
 
 @app.errorhandler(500)
 def internal_error(error):
-    return jsonify({"success": False, "status": "error", "error": "Internal server error"}), 500
+    return jsonify({
+        "success": False,
+        "status": "error",
+        "error": "Internal server error",
+        "details": str(error)
+    }), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
