@@ -1,4 +1,8 @@
-flask
+gunicorn
+Flask
 flask-cors
 yt-dlp
-gunicorn
+Pillow
+pypdf
+rembg
+requests
