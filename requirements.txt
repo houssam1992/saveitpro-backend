@@ -1,7 +1,6 @@
 gunicorn
 Flask
 flask-cors
-yt-dlp
 Pillow
 pypdf
 rembg
