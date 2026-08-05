@@ -1,8 +1,5 @@
 import os
-import yt_dlp
 import tempfile
-import re
-import time
 import io
 import random
 import string
@@ -10,7 +7,6 @@ import requests
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from urllib.parse import urlparse
 from PIL import Image
 import pypdf
 
@@ -19,102 +15,40 @@ app = Flask(__name__)
 # إعدادات CORS للسماح بالاتصال من نطاق الموقع
 CORS(app, resources={r"/*": {"origins": ["https://saveitpro.co", "https://www.saveitpro.co"]}})
 
-# المنصات المدعومة لتنزيل الفيديوهات
-SUPPORTED_PLATFORMS = [
-    'YouTube', 'TikTok', 'Instagram', 'Facebook', 'Reddit', 
-    'Twitter/X', 'Pinterest', 'Snapchat', 'Twitch', 'Vimeo'
-]
-
-TEMP_DIR = tempfile.gettempdir()
-
-def cleanup_old_files():
-    """تنظيف الملفات المؤقتة لتفادي امتلاء ذاكرة السيرفر"""
-    try:
-        current_time = time.time()
-        for filename in os.listdir(TEMP_DIR):
-            if filename.startswith('saveitpro_'):
-                filepath = os.path.join(TEMP_DIR, filename)
-                if os.path.isfile(filepath):
-                    file_age = current_time - os.path.getctime(filepath)
-                    if file_age > 1800:  # 30 دقيقة
-                        os.remove(filepath)
-    except Exception:
-        pass
-
-# ==================== GENERAL ROUTES ====================
+# ==================== GENERAL & ABOUT ROUTES ====================
 
 @app.route('/')
 def root():
     return jsonify({
         "status": "running",
-        "message": "SaveItPro All-In-One API v2.0 is Live!",
+        "message": "SaveItPro API v2.0 is Live",
         "version": "2.0.0"
     }), 200
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    return jsonify({"status": "healthy", "service": "SaveItPro Backend", "version": "2.0.0"}), 200
+    return jsonify({"status": "healthy", "service": "SaveItPro Backend"}), 200
 
-# ==================== 1. VIDEO DOWNLOADER ====================
-
-@app.route('/api/download', methods=['POST'])
-def download_media():
-    try:
-        cleanup_old_files()
-        data = request.get_json() or {}
-        url = data.get('url', '').strip()
-
-        if not url or not url.startswith(('http://', 'https://')):
-            return jsonify({"success": False, "error": "Invalid URL"}), 400
-
-        unique_id = os.urandom(6).hex()
-        base_filename = f"saveitpro_{unique_id}"
-
-        ydl_opts = {
-            'format': 'best',
-            'outtmpl': os.path.join(TEMP_DIR, f'{base_filename}.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'noplaylist': True,
-            'socket_timeout': 30,
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            }
+@app.route('/api/about', methods=['GET'])
+def get_about_info():
+    """مسار يرجع معلومات القصة، الشعار، الاتصال، وسياسة الخصوصية"""
+    return jsonify({
+        "app_name": "SaveItPro",
+        "slogan": "Fast, Secure & Free Privacy-First Digital Tools",
+        "founder": {
+            "name": "Houssem Ghenimi",
+            "role": "Independent Web Developer & Founder",
+            "story": "I split my days between installing B13 drywall on construction sites and writing code. The daily endurance and work ethic I've built are poured directly into SaveItPro, offering fast, completely free, and privacy-focused digital tools to users around the globe.",
+            "whatsapp": "+213662192505",
+            "whatsapp_link": "https://wa.me/213662192505"
+        },
+        "privacy": {
+            "title": "Strict Zero Data Retention",
+            "description": "Your files are never stored, viewed, or shared. All processing happens during your active session and is wiped immediately upon completion. What happens on SaveItPro, stays on your device."
         }
+    }), 200
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            file_path = ydl.prepare_filename(info)
-            final_filename = os.path.basename(file_path)
-
-            download_url = f"{request.host_url}api/get/{final_filename}"
-            safe_title = re.sub(r'[^a-zA-Z0-9\s_-]', '', info.get('title', 'download'))
-
-            return jsonify({
-                "success": True,
-                "downloadUrl": download_url,
-                "filename": final_filename,
-                "title": safe_title
-            }), 200
-
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-@app.route('/api/get/<filename>', methods=['GET'])
-def get_file(filename):
-    try:
-        if '..' in filename or '/' in filename or not filename.startswith('saveitpro_'):
-            return jsonify({"error": "Invalid filename"}), 400
-
-        file_path = os.path.join(TEMP_DIR, filename)
-        if os.path.exists(file_path):
-            return send_file(file_path, as_attachment=True, download_name=filename)
-
-        return jsonify({"error": "File not found or expired"}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
-
-# ==================== 2. REMOVE BG (إزالة الخلفية) ====================
+# ==================== ACTIVE TOOLS ====================
 
 @app.route('/api/tools/remove-bg', methods=['POST'])
 def remove_bg():
@@ -127,8 +61,6 @@ def remove_bg():
         return send_file(io.BytesIO(output_data), mimetype='image/png', as_attachment=True, download_name="no-bg.png")
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-# ==================== 3. IMG COMPRESS (ضغط الصور) ====================
 
 @app.route('/api/tools/compress-image', methods=['POST'])
 def compress_image():
@@ -147,8 +79,6 @@ def compress_image():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ==================== 4. PASS GEN (مولد كلمات السر) ====================
-
 @app.route('/api/tools/generate-password', methods=['GET', 'POST'])
 def generate_password():
     data = request.get_json() or {}
@@ -156,8 +86,6 @@ def generate_password():
     chars = string.ascii_letters + string.digits + "!@#$%^&*()"
     password = ''.join(random.choice(chars) for _ in range(length))
     return jsonify({"password": password})
-
-# ==================== 5. AGE CALC (حاسبة العمر) ====================
 
 @app.route('/api/tools/calculate-age', methods=['POST'])
 def calculate_age():
@@ -173,8 +101,6 @@ def calculate_age():
     except Exception as e:
         return jsonify({"error": "Invalid date format (YYYY-MM-DD)"}), 400
 
-# ==================== 6. TEXT CASE (تحويل النصوص) ====================
-
 @app.route('/api/tools/text-case', methods=['POST'])
 def text_case():
     data = request.get_json() or {}
@@ -189,8 +115,6 @@ def text_case():
     else:
         result = text
     return jsonify({"result": result})
-
-# ==================== 7. MERGE PDF (دمج PDF) ====================
 
 @app.route('/api/tools/merge-pdf', methods=['POST'])
 def merge_pdf():
@@ -209,8 +133,6 @@ def merge_pdf():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ==================== 8. IMG CONVERT (تحويل صيغ الصور) ====================
-
 @app.route('/api/tools/convert-image', methods=['POST'])
 def convert_image():
     try:
@@ -222,7 +144,7 @@ def convert_image():
         img = Image.open(file.stream)
         output = io.BytesIO()
         
-        if target_format == 'jpg' or target_format == 'jpeg':
+        if target_format in ['jpg', 'jpeg']:
             if img.mode in ("RGBA", "P"):
                 img = img.convert("RGB")
             img.save(output, format='JPEG')
@@ -238,8 +160,6 @@ def convert_image():
         return send_file(output, mimetype=mimetype, as_attachment=True, download_name=f"converted.{target_format}")
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-# ==================== 9. CURRENCY (محول العملات) ====================
 
 @app.route('/api/tools/currency', methods=['POST'])
 def convert_currency():
